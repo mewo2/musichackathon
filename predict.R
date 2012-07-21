@@ -45,10 +45,11 @@ domerge <- function (data) {
 trainfeats <- domerge(train)[,-4];
 testfeats <- domerge(test);
 
-rf <- randomForest(trainfeats, train$Rating, do.trace=T, sampsize=50000, ntree=1000);
+rf <- randomForest(trainfeats, train$Rating, do.trace=T, ntree=500);
 cat('Estimated RMSE: ', rmse(train$Rating, rf$predicted), '\n');
 
 pred <- predict(rf, testfeats);
+cv <- rf$predicted;
 
 argv <- commandArgs(T);
 if (length(argv) == 0) {
@@ -57,4 +58,5 @@ if (length(argv) == 0) {
   filename <- argv[1];
 }
 
-write.csv(pred, filename, row.names=F, quote=F)
+write.csv(pred, filename, row.names=F, quote=F);
+write.csv(cv, paste(filename, '.cross', sep=''), row.names=F, quote=F)
