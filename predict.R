@@ -45,7 +45,7 @@ domerge <- function (data) {
 trainfeats <- domerge(train)[,-4];
 testfeats <- domerge(test);
 
-rf <- randomForest(trainfeats, train$Rating, do.trace=T, ntree=500);
+rf <- randomForest(trainfeats, train$Rating, do.trace=T, sampsize=50000, ntree=500);
 cat('Estimated RMSE: ', rmse(train$Rating, rf$predicted), '\n');
 
 pred <- predict(rf, testfeats);
