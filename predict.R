@@ -1,55 +1,76 @@
 library(randomForest);
+library(plyr);
 
 rmse <- function (x, y) mean((x - y)^2)^0.5;
 
-train <- read.csv('data/train.csv');
-test <- read.csv('data/test.csv');
-words <- read.csv('data/words.csv');
-users <- read.csv('data/users.csv')
+cleaned <- tryCatch({load('data/clean.Rdata'); cleaned},
+  error = function (e) {source('clean.R'); save(cleaned, file='data/clean.Rdata'); return(cleaned);});
+  
+trainfeats <- cleaned[[1]];
+testfeats <- cleaned[[2]];
+ratings <- cleaned[[3]];
 
-words$X <- NULL;
-rows <- is.na(words$Good.Lyrics)
-words$Good.Lyrics[rows] <- words$Good.lyrics[rows];
-words$Good.lyrics <- NULL;
-words$OWN_ARTIST_MUSIC <- as.character(words$OWN_ARTIST_MUSIC);
-words$OWN_ARTIST_MUSIC[substr(words$OWN_ARTIST_MUSIC, 2, 2) == 'o'] <- 'DK';
-words$OWN_ARTIST_MUSIC <- as.factor(words$OWN_ARTIST_MUSIC);
-words$HEARD_OF[words$HEARD_OF == ''] <- 'Never heard of';
-words$HEARD_OF[words$HEARD_OF == 'Ever heard music by'] <- 'Heard of and listened to music EVER';
-words$HEARD_OF[words$HEARD_OF == 'Ever heard of'] <- 'Heard of';
-words$HEARD_OF[words$HEARD_OF == 'Listened to recently'] <- 'Heard of and listened to music RECENTLY';
-words$HEARD_OF <- droplevels(words$HEARD_OF);
-
-words <- na.roughfix(words);
-
-fixtimes <- function (x) {
-  x <- as.character(x)
-  x[x == 'Less than an hour'] <- '.5';
-  x[x == 'More than 16 hours'] <- '18';
-  x <- as.numeric(substr(x, 1, 2));
-  return(x)
-}
-users$LIST_OWN <- fixtimes(users$LIST_OWN);
-users$LIST_BACK <- fixtimes(users$LIST_BACK);
-
-domerge <- function (data) {
-  data$RowID <- 1:nrow(data);
-  merged <- merge(data, words, all.x=T);
-  merged <- merge(merged, users, by.x='User', by.y='RESPID', all.x=T)
-  merged <- na.roughfix(merged);
-  merged <- merged[order(merged$RowID),];
-  merged$RowID <- NULL;
-  return(merged);
+rfpred <- function (trainfeats, testfeats, ratings) {
+  rf <- randomForest(trainfeats, ratings, do.trace=T, sampsize=1000, ntree=100);
+  pred <- predict(rf, testfeats);
+  cv <- rf$predicted;
+  return(list(pred=pred, cv=cv));
 }
 
-trainfeats <- domerge(train)[,-4];
-testfeats <- domerge(test);
+svdpred <- function (trainfeats, testfeats, ratings, n=64) {
+  library(irlba);
+  mu <- mean(ratings);
+  spmat <- sparseMatrix(i=trainfeats$User + 1, j=trainfeats$Track + 1, x=ratings - mu);
+  sv <- irlba(spmat, nu=n, nv=n);
+  rec <- sv$u %*% (sv$d * t(sv$v));
+  pred <- sapply(1:nrow(testfeats), function (i) rec[testfeats$User[i] + 1, testfeats$Track[i] + 1]) + mu;
+  return(list(pred=pred));
+}
 
-rf <- randomForest(trainfeats, train$Rating, do.trace=T, sampsize=50000, ntree=500);
-cat('Estimated RMSE: ', rmse(train$Rating, rf$predicted), '\n');
+svmpred <- function (trainfeats, testfeats, ratings) {
+  library(e1071);
+  n <- nrow(trainfeats);
+  big <- rbind(trainfeats, testfeats);
+  model <- model.matrix(~., data=big);
+  sv <- svm(model[1:n,], ratings);
+  pred <- predict(svm, model[-(1:n)]);
+  return(list(pred=pred));
+} 
+cross.val <- function (predictor, folds, trainfeats, testfeats, ratings, ...) {
+  cat('Running primary predictor\n');
+  pred <- predictor(trainfeats, testfeats, ratings);
+  items <- sample(folds, nrow(trainfeats), T);
+  cv <- numeric(nrow(trainfeats));
+  for (i in 1:folds) {
+    samp <- which(items == i);
+    cat('Running CV fold', i, '\n');
+    cpred <- predictor(trainfeats[-samp,], trainfeats[samp,], ratings[-samp]);
+    cat('Estimated RMSE for fold:', rmse(ratings[samp], cpred$pred), '\n');
+    cv[samp] <- cpred$pred;
+  }
+  pred$cv <- cv;
+  return(pred);
+}
 
-pred <- predict(rf, testfeats);
-cv <- rf$predicted;
+remove.global <- function (predictor) {
+  function (trainfeats, testfeats, ratings) {
+    trainfeats$Rating <- ratings;
+    usr <- daply(trainfeats, .(User), function (x) mean(x$Rating));
+    trainfeats$Rating <- NULL;
+    offset <- usr[as.character(trainfeats$User)];
+    offset[is.na(offset)] <- mean(usr);
+    ratings <- ratings - offset;
+    pred <- predictor(trainfeats, testfeats, ratings);
+    offset <- usr[as.character(testfeats$User)];
+    offset[is.na(offset)] <- mean(usr);
+    pred$pred <- pred$pred + offset;
+    return(pred);
+  }
+} 
+source('funk.R');
+
+pred <- cross.val(funkpred, 10, trainfeats, testfeats, ratings);
+cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
 
 argv <- commandArgs(T);
 if (length(argv) == 0) {
@@ -58,5 +79,5 @@ if (length(argv) == 0) {
   filename <- argv[1];
 }
 
-write.csv(pred, filename, row.names=F, quote=F);
-write.csv(cv, paste(filename, '.cross', sep=''), row.names=F, quote=F)
+write.csv(pred$pred, filename, row.names=F, quote=F);
+write.csv(pred$cv, paste(filename, '.cross', sep=''), row.names=F, quote=F)
