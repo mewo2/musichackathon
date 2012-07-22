@@ -1,5 +1,7 @@
 library(randomForest);
 library(plyr);
+nuser <- 50928;
+ntrack <- 184;
 
 rmse <- function (x, y) mean((x - y)^2)^0.5;
 
@@ -35,7 +37,22 @@ svmpred <- function (trainfeats, testfeats, ratings) {
   sv <- svm(model[1:n,], ratings);
   pred <- predict(svm, model[-(1:n)]);
   return(list(pred=pred));
-} 
+}
+
+rfbyartistpred <- function (train, test, ratings) {
+  train$Rating <- ratings;
+  rfs <- dlply(train, .(Artist), function (x) {
+    rating <- x$Rating;
+    x$Rating <- NULL;
+    return(randomForest(x, rating, ntree=100, do.trace=F));
+  }, .progress='text');
+  pred <- numeric(nrow(test));
+  for (i in 0:max(test$Artist)) {
+    ids <- test$Artist == i;
+    if (sum(ids) > 0) pred[ids] <- predict(rfs[[as.character(i)]], test[ids,]);
+  }
+  return(list(pred=pred));
+}
 cross.val <- function (predictor, folds, trainfeats, testfeats, ratings, ...) {
   cat('Running primary predictor\n');
   pred <- predictor(trainfeats, testfeats, ratings);
@@ -53,23 +70,44 @@ cross.val <- function (predictor, folds, trainfeats, testfeats, ratings, ...) {
 }
 
 remove.global <- function (predictor) {
-  function (trainfeats, testfeats, ratings) {
-    trainfeats$Rating <- ratings;
-    usr <- daply(trainfeats, .(User), function (x) mean(x$Rating));
-    trainfeats$Rating <- NULL;
-    offset <- usr[as.character(trainfeats$User)];
-    offset[is.na(offset)] <- mean(usr);
-    ratings <- ratings - offset;
-    pred <- predictor(trainfeats, testfeats, ratings);
-    offset <- usr[as.character(testfeats$User)];
-    offset[is.na(offset)] <- mean(usr);
-    pred$pred <- pred$pred + offset;
+  function (train, test, ratings) {
+    n <- nrow(train);
+    mu <- mean(ratings);
+    baseline <- rep(mu, n);
+
+    usum <- numeric(nuser);
+    ucount <- numeric(nuser);
+    for (i in 1:n) {
+      u <- train$User[i] + 1;
+      usum[u] <- usum[u] + ratings[i] - baseline[i];
+      ucount[u] <- ucount[u] + 1;
+    }
+    umean <- usum / (ucount + 5);
+    baseline <- baseline + umean[train$User + 1];
+
+    tsum <- numeric(ntrack);
+    tcount <- numeric(ntrack);
+    for (i in 1:n) {
+        t <- train$Track[i] + 1;
+        tsum[t] <- tsum[t] + ratings[i] - baseline[i];
+        tcount[t] <- tcount[t] + 1;
+      }
+    tmean <- tsum / (tcount + 25);
+    baseline <- baseline + tmean[train$Track + 1];
+    
+    pred <- predictor(train, test, ratings - baseline);
+    trk <- test$Track + 1;
+    usr <- test$User + 1;
+    base <- umean[usr] + tmean[trk] + mu;
+    
+    pred$pred <- pred$pred + base;
     return(pred);
   }
 } 
 source('funk.R');
 
-pred <- cross.val(funkpred, 10, trainfeats, testfeats, ratings);
+s <- sample(nrow(test), 10000)
+pred <- cross.val(remove.global(rfbyartistpred), 5, trainfeats, testfeats, ratings);
 cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
 
 argv <- commandArgs(T);

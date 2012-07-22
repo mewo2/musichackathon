@@ -1,7 +1,5 @@
 funksvd <- function (users, tracks, ratings, nfeats=16) {
   n <- length(users);
-  nuser <- max(users) + 1;
-  ntrack <- max(tracks) + 1;
   ufeats <- double(nuser * nfeats);
   tfeats <- double(ntrack * nfeats);
   dyn.load('funk.so');
@@ -47,8 +45,6 @@ funksvd <- function (users, tracks, ratings, nfeats=16) {
 
 funkpred <- function(train, test, ratings) {
   n <- nrow(train);
-  ntrack <- max(train$Track) + 1;
-  nuser <- max(train$User) + 1;
   mu <- mean(ratings);
   baseline <- rep(mu, n);
 
