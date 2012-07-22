@@ -1,4 +1,5 @@
 data/
 predictions/
+blends/
 *.o
 *.so

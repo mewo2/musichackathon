@@ -1,5 +1,8 @@
 library(randomForest);
 library(plyr);
+library(gbm);
+library(compiler);
+enableJIT(3);
 nuser <- 50928;
 ntrack <- 184;
 
@@ -103,11 +106,34 @@ remove.global <- function (predictor) {
     pred$pred <- pred$pred + base;
     return(pred);
   }
-} 
+}
+
+lmpred <- function (train, test, ratings) {
+  l <- lm(ratings ~ ., data=train); 
+  pred <- predict(l, test); 
+  return(list(pred=pred))
+}
+
+gbmpred <- function (train, test, ratings) {
+  gb <- gbm.fit(train, ratings, distribution='gaussian', shrinkage=0.08, n.trees=250, interaction.depth=4);
+  pred <- predict(gb, test, n.trees=250);
+  return(list(pred=pred))
+}
+
+nndemopred <- function (train, test, ratings) {
+  mu <- mean(ratings);
+  ages <- c(train$AGE, test$AGE)
+  ages <- cut(ages, quantile(ages, c(0, 0.2, 0.4, 0.6, 0.8, 1.0)));
+  train$AGE <- ages[1:nrow(train)];
+  test$AGE <- ages[-(1:nrow(train))];
+  scores <- ddply(train, .(Track, AGE, GENDER), function (x) c(Rating=mean(x$Rating)));
+  pred <- merge(test, scores, by=c('Track', 'AGE', 'GENDER'), all.x=T)$Rating;
+  pred[is.na(pred)] <- mu;
+  return(list(pred=pred));
+}
 source('funk.R');
 
-s <- sample(nrow(test), 10000)
-pred <- cross.val(remove.global(rfbyartistpred), 5, trainfeats, testfeats, ratings);
+pred <- cross.val(remove.global(gbmpred), 5, trainfeats, testfeats, ratings);
 cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
 
 argv <- commandArgs(T);
