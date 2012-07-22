@@ -47,7 +47,7 @@ rfbyartistpred <- function (train, test, ratings) {
   rfs <- dlply(train, .(Artist), function (x) {
     rating <- x$Rating;
     x$Rating <- NULL;
-    return(randomForest(x, rating, ntree=100, do.trace=F));
+    return(randomForest(x, rating, ntree=100, nodesize=10, do.trace=F));
   }, .progress='text');
   pred <- numeric(nrow(test));
   for (i in 0:max(test$Artist)) {
@@ -131,9 +131,55 @@ nndemopred <- function (train, test, ratings) {
   pred[is.na(pred)] <- mu;
   return(list(pred=pred));
 }
-source('funk.R');
 
-pred <- cross.val(remove.global(gbmpred), 5, trainfeats, testfeats, ratings);
+nnpred <- function (train, test, ratings, k=16) {
+  train$Rating <- ratings;
+  bytrack <- lapply(0:(ntrack - 1), function (i) subset(train, Track == i));
+  rho <- matrix(0, ntrack, ntrack);
+  cat('Building rho\n');
+  for (i in 1:ntrack) {
+    ti <- bytrack[[i]];
+    for (j in 1:ntrack) {
+      tj <- bytrack[[j]];
+      uij <- intersect(ti$User, tj$User);
+      nij <- length(uij);
+      if (nij == 0) next;
+      ui <- ti[match(uij, ti$User),];
+      uj <- tj[match(uij, tj$User),];
+      rho[i,j] <- (nij) / (nij + 1) * sum(ui$Rating * uj$Rating) / (sum(ui$Rating^2) * sum(uj$Rating^2))^.5;
+    }
+  }
+  cat('Identifying tracks\n');
+  tracks.by.user <- dlply(train, .(User), function (x) data.frame(Track=x$Track, Rating=x$Rating));
+  pred <- numeric(nrow(test));
+  cat('Running prediction\n');
+  for (i in 1:nrow(test)) {
+    t <- test$Track[i];
+    u <- test$User[i];
+    cands <- tracks.by.user[as.character(u)];
+    tracks <- cands$Track;
+    scores <- cands$Rating;
+    if (is.null(tracks)) next;
+    weights <- rho[t+1, tracks+1];
+    gt0 <- weights >= 0;
+    if (sum(gt0) == 0) next;
+    weights <- weights[gt0];
+    tracks <- tracks[gt0];
+    scores <- scores[gt0];
+    nij <- length(tracks);
+    if (nij > k) {
+      ord <- order(-weights)[1:k];
+      tracks <- tracks[ord];
+      weights <- weights[ord];
+      scores <- scores[ord];
+    }
+    pred[i] <- sum(weights * scores) / (1 + sum(weights)); 
+  }
+  return(list(pred=pred));
+}
+source('funk.R');
+# s <- sample(nrow(testfeats), 100000)
+pred <- cross.val(remove.global(nnpred), 4, trainfeats, testfeats, ratings);
 cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
 
 argv <- commandArgs(T);
@@ -144,4 +190,5 @@ if (length(argv) == 0) {
 }
 
 write.csv(pred$pred, filename, row.names=F, quote=F);
-write.csv(pred$cv, paste(filename, '.cross', sep=''), row.names=F, quote=F)
+write.csv(pred$cv, paste(filename, '.cross', sep=''), row.names=F, quote=F);
+cat('Done\n')
