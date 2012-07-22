@@ -6,12 +6,12 @@ train <- read.csv('data/train.csv');
 
 ratings <- train$Rating;
 
-preds <- c('lm', 'svd', 'rf', 'demo', 'gbm', 'knn', 'rfbya');
+preds <- c('lm', 'svd', 'rf', 'demo', 'gbm', 'knn', 'rfbya', 'svdslow', 'lmbya2', 'lmbyt2');
 
 trains <- sapply(preds, function (name) read.csv(paste('predictions/', name, '.csv.cross', sep=''))$x)/100;
 tests <- sapply(preds, function (name) read.csv(paste('predictions/', name, '.csv', sep=''))$x)/100;
 
-mix <- nnet(trains, ratings, size=3, decay=0.1, maxit=500, linout=T, reltol=0, abstol=0);
+mix <- nnet(trains, ratings, size=5, decay=0.1, maxit=500, linout=T, reltol=0, abstol=0, skip=T);
 print(summary(mix));
 cat('RMSE:', rmse(predict(mix), ratings), '\n');
 

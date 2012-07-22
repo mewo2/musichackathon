@@ -43,50 +43,14 @@ funksvd <- function (users, tracks, ratings, nfeats=16) {
   # return(list(baseline=baseline,ufeats=ufeats, tfeats=tfeats));
 }
 
-funkpred <- function(train, test, ratings) {
-  n <- nrow(train);
-  mu <- mean(ratings);
-  baseline <- rep(mu, n);
-
-  usum <- numeric(nuser);
-  ucount <- numeric(nuser);
-  for (i in 1:n) {
-    u <- train$User[i] + 1;
-    usum[u] <- usum[u] + ratings[i] - baseline[i];
-    ucount[u] <- ucount[u] + 1;
-  }
-  umean <- usum / (ucount + 5);
-  baseline <- baseline + umean[train$User + 1];
-  
-  tsum <- numeric(ntrack);
-  tcount <- numeric(ntrack);
-  for (i in 1:n) {
-      t <- train$Track[i] + 1;
-      tsum[t] <- tsum[t] + ratings[i] - baseline[i];
-      tcount[t] <- tcount[t] + 1;
-    }
-  tmean <- tsum / (tcount + 25);
-  baseline <- baseline + tmean[train$Track + 1];
-
-
-
-  sv <- funksvd(train$User, train$Track, ratings - baseline, 64);
+funkpred <- function(train, test, ratings, nfeats=32) {
+  sv <- funksvd(train$User, train$Track, ratings, nfeats);
   pred <- sapply(1:nrow(test), 
     function (i) {
       trk <- test$Track[i] + 1;
       usr <- test$User[i] + 1;
-      base <- umean[usr] + tmean[trk] + mu;
       s <- t(sv$ufeats[usr,]) %*% sv$tfeats[trk,];
-      return(base + s);
+      return(s);
     });
-  pred.train <- sapply(1:nrow(train), 
-    function (i) {
-      trk <- train$Track[i] + 1;
-      usr <- train$User[i] + 1;
-      base <- umean[usr] + tmean[trk] + mu;
-      s <- t(sv$ufeats[usr,]) %*% sv$tfeats[trk,];
-      return(base + s);
-    });
-  cat("Sanity check RMSE:", rmse(pred.train, ratings), '\n');
   return(list(pred=pred));
 }
