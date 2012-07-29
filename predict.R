@@ -145,6 +145,7 @@ remove.global <- function (predictor) {
     base <- umean[usr] + tmean[trk] + mu;
     
     pred$pred <- pred$pred + base;
+    if (!is.null(pred$cv)) pred$cv <- pred$cv + baseline;
     return(pred);
   }
 }
@@ -159,6 +160,15 @@ gbmpred <- function (train, test, ratings) {
   gb <- gbm.fit(train, ratings, distribution='gaussian', shrinkage=0.08, n.trees=250, interaction.depth=4);
   pred <- predict(gb, test, n.trees=250);
   return(list(pred=pred))
+}
+
+rfqpred <- function (train, test, ratings) {
+  train <- train[,c(2,3,96:114)];
+  test <- test[,c(2,3,96:114)];
+  rf <- randomForest(train, ratings, do.trace=T, sampsize=50000, ntree=200);
+  pred <- predict(rf, test);
+  cv <- rf$predicted;
+  return(list(pred=pred, cv=cv));
 }
 
 nndemopred <- function (train, test, ratings) {
@@ -220,7 +230,9 @@ nnpred <- function (train, test, ratings, k=16) {
 }
 source('funk.R');
 # s <- sample(nrow(testfeats), 100000)
-pred <- cross.val(remove.global(lmbytrackpred), 4, trainfeats, testfeats, ratings);
+# pred <- cross.val(remove.global(lmbytrackpred), 4, trainfeats, testfeats, ratings);
+pred <- remove.global(rfqpred)(trainfeats, testfeats, ratings);
+
 cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
 
 argv <- commandArgs(T);
