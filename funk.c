@@ -8,7 +8,7 @@ void funksvd(int* pn, int* users, int* tracks, double* ratings, int* pnfeats, in
   int ntrack = *pntrack;
   int min_loops = 30;
   double min_improve = 1e-6;
-  double k = 5;
+  double k = 4;
   double lrate = 1e-4;
   
   int i = 0;

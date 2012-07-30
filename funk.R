@@ -43,7 +43,7 @@ funksvd <- function (users, tracks, ratings, nfeats=16) {
   # return(list(baseline=baseline,ufeats=ufeats, tfeats=tfeats));
 }
 
-funkpred <- function(train, test, ratings, nfeats=32) {
+svdpred <- function(train, test, ratings, nfeats=16) {
   sv <- funksvd(train$User, train$Track, ratings, nfeats);
   pred <- sapply(1:nrow(test), 
     function (i) {

@@ -16,20 +16,14 @@ testfeats <- cleaned[[2]];
 ratings <- cleaned[[3]];
 
 rfpred <- function (trainfeats, testfeats, ratings) {
-  rf <- randomForest(trainfeats, ratings, do.trace=T, sampsize=1000, ntree=100);
+  rf <- randomForest(trainfeats, ratings, do.trace=T, sampsize=50000, ntree=100);
   pred <- predict(rf, testfeats);
   cv <- rf$predicted;
   return(list(pred=pred, cv=cv));
 }
 
-svdpred <- function (trainfeats, testfeats, ratings, n=64) {
-  library(irlba);
-  mu <- mean(ratings);
-  spmat <- sparseMatrix(i=trainfeats$User + 1, j=trainfeats$Track + 1, x=ratings - mu);
-  sv <- irlba(spmat, nu=n, nv=n);
-  rec <- sv$u %*% (sv$d * t(sv$v));
-  pred <- sapply(1:nrow(testfeats), function (i) rec[testfeats$User[i] + 1, testfeats$Track[i] + 1]) + mu;
-  return(list(pred=pred));
+svdslowpred <- function (trainfeats, testfeats, ratings) {
+  svdpred(trainfeats, testfeats, ratings, n=64);
 }
 
 svmpred <- function (trainfeats, testfeats, ratings) {
@@ -171,7 +165,7 @@ rfqpred <- function (train, test, ratings) {
   return(list(pred=pred, cv=cv));
 }
 
-nndemopred <- function (train, test, ratings) {
+demopred <- function (train, test, ratings) {
   mu <- mean(ratings);
   ages <- c(train$AGE, test$AGE)
   ages <- cut(ages, quantile(ages, c(0, 0.2, 0.4, 0.6, 0.8, 1.0)));
@@ -229,19 +223,28 @@ nnpred <- function (train, test, ratings, k=16) {
   return(list(pred=pred));
 }
 source('funk.R');
-# s <- sample(nrow(testfeats), 100000)
-# pred <- cross.val(remove.global(lmbytrackpred), 4, trainfeats, testfeats, ratings);
-pred <- remove.global(rfqpred)(trainfeats, testfeats, ratings);
 
-cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
+save.pred <- function (name, pred) {
+  cat('Estimated RMSE: ', rmse(ratings, pred$cv), '\n');
 
-argv <- commandArgs(T);
-if (length(argv) == 0) {
-  filename <- 'predictions/scratch.csv';
-} else {
-  filename <- argv[1];
+  filename <- paste('predictions/', name, '.csv', sep='');
+
+  write.csv(pred$pred, filename, row.names=F, quote=F);
+  write.csv(pred$cv, paste(filename, '.cross', sep=''), row.names=F, quote=F);
 }
 
-write.csv(pred$pred, filename, row.names=F, quote=F);
-write.csv(pred$cv, paste(filename, '.cross', sep=''), row.names=F, quote=F);
+save.pred('lmbyt', cross.val(remove.global(lmbytrackpred), 10, trainfeats, testfeats, ratings));
+save.pred('lmbya', cross.val(remove.global(lmbyartistpred), 10, trainfeats, testfeats, ratings));
+save.pred('rfbya', cross.val(remove.global(rfbyartistpred), 10, trainfeats, testfeats, ratings));
+
+save.pred('rf', rfpred(trainfeats, testfeats, ratings));
+save.pred('gbm', cross.val(remove.global(gbmpred), 10, trainfeats, testfeats, ratings));
+save.pred('lm', cross.val(remove.global(lmpred), 10, trainfeats, testfeats, ratings));
+
+save.pred('svd', cross.val(remove.global(svdpred), 10, trainfeats, testfeats, ratings));
+save.pred('svdslow', cross.val(remove.global(svdslowpred), 10, trainfeats, testfeats, ratings));
+
+save.pred('knn', cross.val(remove.global(nnpred), 10, trainfeats, testfeats, ratings));
+save.pred('demo', cross.val(remove.global(demopred), 10, trainfeats, testfeats, ratings));
+
 cat('Done\n')
